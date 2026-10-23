@@ -13,11 +13,16 @@ def problems(n: int, params: np.ndarray, tol: float = NONZERO_OVERLAP_TOL) -> li
     Return a list of human-readable problems, i.e., issues with our solution.
     An empty list means no problems and hence valid."""
     params = np.asarray(params, dtype=float)
+
+    # n should equal param length
     if params.shape != (n, 3):
         return [f"expected shape ({n}, 3), got {params.shape}"]
+
+    # if we have any infinite values, that's a problem.
     if not np.isfinite(params).all():
         return ["non-finite values"]
 
+    # overlapping pairs are problems:
     # finds overlapping pairs 
     pairs = overlapping_pairs(params, tol)
 
