@@ -10,6 +10,7 @@ wheels/
 .venv
 
 # Competition data and generated submissions
+*.csv
 data/
 submission*.csv
 solutions/*.tmp

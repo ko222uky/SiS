@@ -1,7 +1,11 @@
-"""Best-known packing per puzzle, one CSV file per n.
+"""
+Module to maintain a store of the best-obtained square packing per puzzle, 
+one CSV file per problem size n.
 
-Optimisers call `offer`; only valid, strictly better packings are kept, so
-improvements from any run accumulate and a submission is a merge of the store.
+A potential improvement can be stored via a call with `offer`; only valid, strictly better packings are kept, so
+improvements from any run accumulate.
+
+Format is based on a submission of the store, wherein the submission is a merge of the store.
 """
 
 from pathlib import Path
@@ -17,7 +21,6 @@ DEFAULT_ROOT = Path("solutions")
 
 # Ignore "improvements" below float noise.
 MIN_GAIN = 1e-12
-
 
 class SolutionStore:
     def __init__(self, root: str | Path = DEFAULT_ROOT):
@@ -44,9 +47,11 @@ class SolutionStore:
             return False
         if puzzle_score(n, params) >= self.score(n) - MIN_GAIN:
             return False
-        tmp = self._path(n).with_suffix(".tmp")
+
+        # safe saving.
+        tmp = self._path(n).with_suffix(".tmp") # saves a temp file
         np.savetxt(tmp, params, delimiter=",", fmt="%.17g", header="x,y,angle", comments="")
-        tmp.replace(self._path(n))
+        tmp.replace(self._path(n))              # replace with temp file
         return True
 
     def all(self, n_max: int = N_MAX) -> dict[int, np.ndarray]:
