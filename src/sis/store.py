@@ -23,6 +23,7 @@ DEFAULT_ROOT = Path("solutions")
 MIN_GAIN = 1e-12
 
 class SolutionStore:
+    """Class that maintains a collection of the best solutions obtained between program executions."""
     def __init__(self, root: str | Path = DEFAULT_ROOT):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)

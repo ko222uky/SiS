@@ -6,6 +6,7 @@ the square's center and its rotation in degrees.
 
 import numpy as np
 import shapely
+from shapely import Polygon
 
 # stored angles are in degrees, which is assumed below
 ANGLE_UNITS = "degrees"
@@ -44,8 +45,40 @@ def corners(params: np.ndarray) -> np.ndarray:
     #    adding our new third axis.
     rot_t = np.stack([np.stack([c, s], -1), np.stack([-s, c], -1)], -2)
 
-
     return _UNIT @ rot_t + params[:, None, :2] 
+
+# I don't think I will actually need this function,
+# but I"ll keep it here as an example of how
+# shapely provides this functionality.
+def gap(s1, s2):
+    """Computes the shortest distance between two unit squares."""
+    return Polygon(corners(s1)).distance(Polygon(corners(s2)))
+
+
+def overlaps(s1, s2, tol: float = 1e-12) -> bool:
+    """
+    Check if a pair of squares overlaps.
+    True if two unit squares [x, y, angle] overlap by more than tol area.
+    Primarily used in the compaction algorithm.
+    """
+    # cheap circle checks first, using the distance between the two centers.
+    # each square fits inside a circle of radius sqrt(2)/2 (through its corners),
+    # and contains a circle of radius 1/2 (touching its sides). So:
+    #   d >= sqrt(2) -> the outer circles don't touch, so the squares can't overlap.
+    #   d <  1       -> the inner circles overlap, so the squares must overlap.
+    d = np.hypot(s1[0] - s2[0], s1[1] - s2[1])
+    if d >= np.sqrt(2):
+        return False
+    if d < 1:
+        return True
+
+    # otherwise do the exact polygon check. corners() wants an (n, 3) array,
+    # so wrap each single [x, y, angle] row with [None].
+    p1 = Polygon(corners(np.asarray(s1, dtype=float)[None])[0])
+    p2 = Polygon(corners(np.asarray(s2, dtype=float)[None])[0])
+    return p1.intersection(p2).area > tol
+
+
 
 # important function for computing the cost. Given our set of squares, this finds the 
 # containing square L's side length. The cost is s/sqrt(n) - 1. 
@@ -72,13 +105,13 @@ def container_side(params: np.ndarray) -> float:
     # Thus, we get our square this way.
     return float(np.ptp(points, axis=0).max())
 
-
 def polygons(params: np.ndarray) -> np.ndarray:
     """Return the squares as a numpy array of shapely Polygons."""
     return shapely.polygons(corners(params))
 
 # this is the main validation checks. Need to define a tolerance.
 # otherwise, it sticks with 0.0.
+# Returns pairs of squares that overlap. ALso useful when visualizing the bad squares.
 def overlapping_pairs(params: np.ndarray, tol: float = 0.0) -> np.ndarray:
     """Return (k, 2) index pairs i < j whose intersection area exceeds tol."""
     polys = polygons(params)

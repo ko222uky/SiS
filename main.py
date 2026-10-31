@@ -15,9 +15,8 @@ Run with:
 uv run python main.py
 ```
 
-TODO: Add an optimization algorithm.
-
-    - Complete search, simulated annealing.
+Also demonstrates the simulated annealing algorithm based on simple
+single-square manipulations after exploding out the solution.
 
 """
 
@@ -27,11 +26,13 @@ from pathlib import Path
 
 import numpy as np
 
+import sis.visualize as sv
 from sis import submission
 from sis.geometry import container_side, corners, grid
 from sis.score import grid_score, puzzle_score, total
 from sis.store import SolutionStore
 from sis.validate import is_valid, problems
+from sis.optimize import separate, anneal, init_random
 
 
 def main():
@@ -60,6 +61,48 @@ def main():
     clash = better.copy()
     clash[4, :2] -= 0.3
     print(f"\nshifted tilted square into a corner square: {problems(n, clash)}")
+
+
+    # Take the clash and separate it:
+    print('=' * 50)
+    print("SEPARATING THE CLASH")
+    sep_clash = separate(clash)
+    print(sep_clash)
+    print(f"Separated clash packing for n={n}: valid={is_valid(n, sep_clash)}, "
+          f"side={container_side(sep_clash):.6f}, score={puzzle_score(n, sep_clash):.6f}")
+    print(f"separated squares in clash: {problems(n, sep_clash)}")
+    print('=' * 50)
+
+    print('#' * 50)
+    print("\n\nDemonstration of the simulated annealing algorithm")
+
+    # PARAMS:
+    T = 1.0
+    cooling = 0.95
+    perturbance = 1.5
+    rounds=300
+
+    init = init_random(1000)
+
+    results = anneal(
+        n, 
+        init, 
+        T = T, 
+        cooling=cooling, 
+        perturbance=perturbance, 
+        rounds=rounds, 
+        seed=None
+    )
+    
+    fig = sv.plot_annealing(results)
+    fig.savefig("demo_anneal.png")
+    candidate_best = results.solution
+    print(candidate_best)
+    print(f"Solution from annealing: packing for n={n}: valid={is_valid(n, candidate_best)}, "
+          f"side={container_side(candidate_best):.6f}, score={puzzle_score(n, candidate_best):.6f}")
+    print(f"Any problems? We'll see them here (though we shouldnt!!): {problems(n, candidate_best)}")
+    print('#' * 50)
+
 
     # the store keeps only valid, strictly better packings per n.
     # a throwaway directory here; the real store defaults to ./solutions.
