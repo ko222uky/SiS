@@ -38,7 +38,9 @@ from sis.optimize import (
     anneal,
     init_random, 
     block_start,
-    flat_loss
+    flat_loss,
+    lbfgs,
+    seq_lbfgs
 )
 
 
@@ -99,7 +101,7 @@ def main():
 
 
     #init, fixed = block_start(n=n)
-    init = init_random(n=n)
+    init = grid(n=n)
     # init = grid(n)
     fixed=None
     
@@ -133,23 +135,8 @@ def main():
     print('#' * 50)
     print("\nExample using L-BFGS:")
     lam = 10.0
-    sq = init
-    L0 = container_side(sq)
-    sq0 = np.append(sq.ravel(), L0) # this attaches L0 to the very end           
-
-    # minimize calls this after every iteration; naming the argument
-    # `intermediate_result` makes scipy pass the current OptimizeResult,
-    # so the loss (.fun) is already computed for us.
-    losses = [flat_loss(sq0, n, lam)]
-    def callback(intermediate_result):
-        losses.append(intermediate_result.fun)
-
-    res = minimize(flat_loss, sq0, args=(n, lam), method="L-BFGS-B", callback=callback)
-
-    print(f"L-BFGS: lambda {lam}, L0: {L0}")
-
-    sq_opt = res.x[:-1].reshape(n, 3)       
-    L_opt = res.x[-1]
+    # call lbfgs function for square packing.
+    sq, sq_opt, L_opt, losses = lbfgs(sq=init, n=n, lam=lam)
 
 
     fig = sv.plot_descent(sq, sq_opt, losses)
@@ -183,6 +170,18 @@ def main():
 
     fig = sv.plot_annealing(results)
     fig.savefig("demo_anneal_post_lfbgs.png")  
+
+    ############################################
+    # SEQUENTIAL LFBGS
+    ############################################
+    # same as lfbgs, but reruns lfbgs on previous runs' output,
+    # and scales lambda by a multiple. Goal is that increasing lambda will let
+    # future runs correct near-valid solutions by highly penalizing overlaps.
+    print("DEMO OF SEQ LFBGS TO REFINE NEAR-VALID RESULTS:")
+    sq, sq_opt, L_opt, losses = seq_lbfgs(sq=init, n=n, lam_start=100.0, lam_mult=10.0, lam_stages=5)
+    fig = sv.plot_descent(sq, sq_opt, losses)
+    fig.savefig("demo_seq_lbfgs.png")
+
 
     # the store keeps only valid, strictly better packings per n.
     # a throwaway directory here; the real store defaults to ./solutions.

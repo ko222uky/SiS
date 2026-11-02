@@ -311,14 +311,14 @@ def flat_loss(p, n, lam=10.0):
     # of x, y, angle.
     return loss(p[:-1].reshape(n, 3), p[-1], lam)
 
-def lbfgs(sq: np.ndarray, n: int, lam_start):
+def lbfgs(sq: np.ndarray, n: int, lam):
     # placeholder for increasing lambda over time.
     L0 = container_side(sq)
     sq0 = np.append(sq.ravel(), L0) # this attaches L0 to the very end
-    losses = [flat_loss(sq0, n, lam_start)]
+    losses = [flat_loss(sq0, n, lam)]
     def callback(intermediate_result):
         losses.append(intermediate_result.fun) 
-    res = minimize(flat_loss, sq0, args=(n, lam_start), method="L-BFGS-B", callback=callback)
+    res = minimize(flat_loss, sq0, args=(n, lam), method="L-BFGS-B", callback=callback)
     sq_opt = res.x[:-1].reshape(n, 3)       
     L_opt = res.x[-1]
     return sq, sq_opt, L_opt, losses
@@ -340,7 +340,7 @@ def seq_lbfgs(sq: np.ndarray, n: int, lam_start, lam_mult=10.0, lam_stages=4):
         lam *= lam_mult
 
     return sq, p[:-1].reshape(n, 3), p[-1], losses
-a
+
 
     
 
