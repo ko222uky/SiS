@@ -32,7 +32,7 @@ from sis.geometry import container_side, corners, grid
 from sis.score import grid_score, puzzle_score, total
 from sis.store import SolutionStore
 from sis.validate import is_valid, problems
-from sis.optimize import separate, anneal, init_random
+from sis.optimize import separate, anneal, init_random, block_start
 
 
 def main():
@@ -77,13 +77,22 @@ def main():
     print("\n\nDemonstration of the simulated annealing algorithm")
 
     # PARAMS:
+    n=20
     T = 1.0
     cooling = 0.95
     perturbance = 1.5
-    rounds=300
+    rounds=1000
+    compact_options={
+        'rotation':'45',
+        'steps':1000
+    }
 
-    init = init_random(1000)
 
+    init, fixed = block_start(n=n)
+    # init = init_random(n=n)
+    # init = grid(n)
+
+    
     results = anneal(
         n, 
         init, 
@@ -91,7 +100,9 @@ def main():
         cooling=cooling, 
         perturbance=perturbance, 
         rounds=rounds, 
-        seed=None
+        seed=None,
+        fixed=fixed,
+        **compact_options
     )
     
     fig = sv.plot_annealing(results)

@@ -124,7 +124,10 @@ def overlapping_pairs(params: np.ndarray, tol: float = 0.0) -> np.ndarray:
 
 
 def grid(n: int) -> np.ndarray:
-    """Trivial packing: row-major fill of a ceil(sqrt(n)) x ceil(sqrt(n)) grid."""
+    """row-major fill of a ceil(sqrt(n)) x ceil(sqrt(n)) grid."""
     k = int(np.ceil(np.sqrt(n)))
     idx = np.arange(n)
     return np.column_stack([idx % k + 0.5, idx // k + 0.5, np.zeros(n)])
+
+
+
