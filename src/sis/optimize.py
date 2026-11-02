@@ -1,11 +1,15 @@
 """
 Contains functions for applying simulated annealing to the square packing problem.
 """
+import math
 from typing import Callable
 import numpy as np
+import shapely
 from scipy.spatial.distance import pdist
-from sis.geometry import overlaps, grid
+from scipy.optimize import minimize
+from sis.geometry import overlaps, grid, polygons, corners, container_side
 from sis.score import puzzle_score
+from sis.validate import is_valid
 # Minimum separation allowing full rotation of a unit square
 # is 2 * 1/sqrt(2) = sqrt(2)
 _MIN_SEP = np.sqrt(2)
@@ -130,12 +134,14 @@ def compact(
         # makes all squares movable if fixed is None
         fixed = np.zeros(n, dtype=bool)
     movable = np.flatnonzero(~fixed)  
-
+    if movable.size == 0:
+        # shouldn't expect this, but add this case to guard
+        return sq 
 
     for _ in range(steps):
         #if _ % 1000 == 0:
         #    print(f"Compaction step: {_}")
-        i = rng.integers(n)
+        i = rng.choice(movable)     # pick a random index from the movable squares
         orig_sq = sq[i].copy()      # the square PRIOR to any changes. Save the state to allow reverting.
         c = sq[:, :2].mean(axis=0)  # the centroid (mean of all centers) of our squares
         direction = c - sq[i, :2]
@@ -170,6 +176,7 @@ def anneal(
         overlaps: Callable = overlaps, 
         rounds=100, 
         T=0.1, 
+        T_method='inv_log',
         cooling=0.97, 
         perturbance=1.3,
         fixed=None,
@@ -191,7 +198,10 @@ def anneal(
         i. High temperatures = Higher Probability
         ii. Worse solutions (higher d) = Lower Probability
 
+    `T_method` includes 'mult' for multiplicative reduction with `cooling`, 'inv_log' for T = 
+
     """
+    T0 = T
     rng = np.random.default_rng(seed)
     if fixed is None:
         cur = compact(separate(sq), overlaps, **compact_options)
@@ -202,9 +212,9 @@ def anneal(
     probabilities = []
     candidate_scores = []
 
-    for _ in range(rounds):
+    for j in range(rounds):
         
-        print(f"Annealing round {_}, T={T}")
+        print(f"Annealing round {j}, T={T}")
         cand = compact(perturb(cur, factor=perturbance, fixed=fixed), fixed=fixed, **compact_options)
 
         # compare score difference. If candidate is lower, then
@@ -231,8 +241,107 @@ def anneal(
             probabilities=probabilities,
             scores=candidate_scores
         )
-
-        T *= cooling
+        if T_method == 'mult':
+            T *= cooling
+        elif T_method == 'inv_log':
+            T = (T0 * cooling) / math.log(j+2)
     return results
+
+
+#######################################################
+# IMPLEMENTING A CLASSICAL METHOD: GRADIENT DESCENT
+#######################################################
+# TODO: define a loss function that we can use for a gradient descent method.
+# In this method, loss should consider (1) the size of container L,
+# (2) the overlap of squares with each other, and maybe (3) squares the exceed the container L's bounds.
+# So, loss = L + overlap of squares i,j + overlap of square i beyond L 
+#
+# Thus, we have three penalties to add that gives us a loss.
+#
+# The main variables are x, y, and theta.
+# To simplify things, we let shapely compute the overlap,
+# so we don't need to manually write the formula...
+
+def loss(sq: np.ndarray, L, lam=10.0):
+    """
+    Returns the loss based on current square configurations.
+    """
+
+    sq = np.asarray(sq, dtype=float)
+
+    # exact overlap area over all pairs i < j, in one vectorized call
+    # convert squares to shapely polygons.
+    polys = polygons(sq)
+    i, j = np.triu_indices(len(sq), k=1) # succinct way to get (i, j) for i < j; it's the upper triangle
+
+    # FIRST PENALTY
+    # vectorized shapely intersections between (i, j); get area then sum.
+    overlap = shapely.area(shapely.intersection(polys[i], polys[j])).sum()
+
+    # SECOND PENALTY
+    # Compute square corners; we know that all corners MUST be inside L.
+    # every corner must sit inside [0, L] x [0, L]
+    c = corners(sq)
+
+    # note: this is computed element-wise; so compute this for x term,
+    # then for y term, and sum them both to get the total penality for a given square,
+    # then sum all squares to get total pentalty for all squares.
+    outside = (np.maximum(0, -c)**2 + np.maximum(0, c - L)**2).sum()
+
+    # THIRD PENALTY: container size L
+    return L + lam * (overlap + outside)
+
+
+def flat_loss(p, n, lam=10.0):
+    """
+    Wraps `loss()` and allows it to be called if `p` is a 1D array. 
+
+    E.g:
+
+        sq = [x1, y1, angle1, ..., xn, yn, anglen, L]
+
+    The lambda coefficient tells us how much violations of boundaries 
+    (square overlaps, boundary overlaps) should contribute to loss,
+    compared to the box size L, which we also want to reduce.
+
+    """
+    # so sq[-1], the last element, holds L0 (our initial L) or the current L in the descent.
+    # and all the squares are everything else, hence :-1.
+    # This single 1-D array is reshaped to n squares, each representing a triplet
+    # of x, y, angle.
+    return loss(p[:-1].reshape(n, 3), p[-1], lam)
+
+def lbfgs(sq: np.ndarray, n: int, lam_start):
+    # placeholder for increasing lambda over time.
+    L0 = container_side(sq)
+    sq0 = np.append(sq.ravel(), L0) # this attaches L0 to the very end
+    losses = [flat_loss(sq0, n, lam_start)]
+    def callback(intermediate_result):
+        losses.append(intermediate_result.fun) 
+    res = minimize(flat_loss, sq0, args=(n, lam_start), method="L-BFGS-B", callback=callback)
+    sq_opt = res.x[:-1].reshape(n, 3)       
+    L_opt = res.x[-1]
+    return sq, sq_opt, L_opt, losses
+
+def seq_lbfgs(sq: np.ndarray, n: int, lam_start, lam_mult=10.0, lam_stages=4):
+    """Repeated L-BFGS, raising lam by lam_mult each stage and warm-starting from the last result."""
+    p = np.append(sq.ravel(), container_side(sq))   # [x1, y1, a1, ..., L]
+    losses = []
+    def callback(intermediate_result):
+        losses.append(intermediate_result.fun)
+
+    lam = lam_start
+    for _ in range(lam_stages):
+        losses.append(flat_loss(p, n, lam))          # loss at the start of this stage
+        res = minimize(flat_loss, p, args=(n, lam), method="L-BFGS-B", callback=callback)
+        p = res.x                                     # warm start the next stage
+        if is_valid(n, p[:-1].reshape(n, 3)):
+            break
+        lam *= lam_mult
+
+    return sq, p[:-1].reshape(n, 3), p[-1], losses
+a
+
+    
 
     

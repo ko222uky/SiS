@@ -25,6 +25,7 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
+from scipy.optimize import minimize 
 
 import sis.visualize as sv
 from sis import submission
@@ -32,7 +33,13 @@ from sis.geometry import container_side, corners, grid
 from sis.score import grid_score, puzzle_score, total
 from sis.store import SolutionStore
 from sis.validate import is_valid, problems
-from sis.optimize import separate, anneal, init_random, block_start
+from sis.optimize import (
+    separate,
+    anneal,
+    init_random, 
+    block_start,
+    flat_loss
+)
 
 
 def main():
@@ -73,30 +80,34 @@ def main():
     print(f"separated squares in clash: {problems(n, sep_clash)}")
     print('=' * 50)
 
+    ############################################################
+    # SIMULATED ANNEALING EXAMPLE
+    ############################################################
     print('#' * 50)
     print("\n\nDemonstration of the simulated annealing algorithm")
 
-    # PARAMS:
     n=20
     T = 1.0
     cooling = 0.95
     perturbance = 1.5
-    rounds=1000
+    rounds=20
     compact_options={
         'rotation':'45',
-        'steps':1000
+        'steps':1000,
+        'step':0.1
     }
 
 
-    init, fixed = block_start(n=n)
-    # init = init_random(n=n)
+    #init, fixed = block_start(n=n)
+    init = init_random(n=n)
     # init = grid(n)
-
+    fixed=None
     
     results = anneal(
         n, 
         init, 
         T = T, 
+        T_method='inv_log',
         cooling=cooling, 
         perturbance=perturbance, 
         rounds=rounds, 
@@ -114,6 +125,64 @@ def main():
     print(f"Any problems? We'll see them here (though we shouldnt!!): {problems(n, candidate_best)}")
     print('#' * 50)
 
+    ############################################################
+    #   L-BFGS EXAMPLES
+    #   (1) L-BFGS
+    #   (2) Post-processing with simulated annealing.
+    ############################################################
+    print('#' * 50)
+    print("\nExample using L-BFGS:")
+    lam = 10.0
+    sq = init
+    L0 = container_side(sq)
+    sq0 = np.append(sq.ravel(), L0) # this attaches L0 to the very end           
+
+    # minimize calls this after every iteration; naming the argument
+    # `intermediate_result` makes scipy pass the current OptimizeResult,
+    # so the loss (.fun) is already computed for us.
+    losses = [flat_loss(sq0, n, lam)]
+    def callback(intermediate_result):
+        losses.append(intermediate_result.fun)
+
+    res = minimize(flat_loss, sq0, args=(n, lam), method="L-BFGS-B", callback=callback)
+
+    print(f"L-BFGS: lambda {lam}, L0: {L0}")
+
+    sq_opt = res.x[:-1].reshape(n, 3)       
+    L_opt = res.x[-1]
+
+
+    fig = sv.plot_descent(sq, sq_opt, losses)
+    fig.savefig("demo_lbfgs.png")
+    print(f"L_opt: {L_opt}")
+    print(f"Solution from L-BFGS: packing for n={n}: valid={is_valid(n, sq_opt)}, "
+          f"side={container_side(sq_opt):.6f}, score={puzzle_score(n, sq_opt):.6f}")
+
+
+    print('#' * 50)
+    print("APPLYING SIMULATED ANNEALING TO L-BFGS RESULTS")
+    compact_options={
+        'rotation':'random',
+        'steps':1000,
+        'step':0.1
+    }
+    
+    # borrow the same simulated annealing parameters above.
+    results = anneal(
+        n, 
+        sq_opt, 
+        T = T, 
+        T_method='inv_log',
+        cooling=cooling, 
+        perturbance=perturbance, 
+        rounds=rounds, 
+        seed=None,
+        fixed=fixed,
+        **compact_options
+    )
+
+    fig = sv.plot_annealing(results)
+    fig.savefig("demo_anneal_post_lfbgs.png")  
 
     # the store keeps only valid, strictly better packings per n.
     # a throwaway directory here; the real store defaults to ./solutions.

@@ -6,6 +6,7 @@ can be dropped into notebooks or combined into larger figures.
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Polygon as PolygonPatch, Rectangle
+from matplotlib.ticker import StrMethodFormatter
 
 from sis.geometry import container_side, corners, overlapping_pairs
 from sis.optimize import AnnealResults
@@ -195,6 +196,47 @@ def plot_annealing(results: AnnealResults):
     for key in ("T", "score"):
         axes[key].set_xlabel("")
         axes[key].tick_params(labelbottom=False)
+    return fig
+
+
+#############################################
+#               L-BFGS PLOTS
+# same idea as the annealing plots, but for a
+# gradient run: the loss is recorded per iteration.
+#############################################
+
+# helper function for visualizing loss, using log scaling due to big drop
+def plot_losses(losses, ax=None):
+    """Loss per L-BFGS iteration (iteration 0 is the starting solution)."""
+    if ax is None:
+        _, ax = plt.subplots(figsize=(7, 3), layout="constrained")
+    losses = np.asarray(losses, dtype=float)
+    its = np.arange(len(losses))
+    ax.plot(its, losses, color=_BLUE, linewidth=2)
+    ax.annotate(f"{losses[-1]:.4f}", (its[-1], losses[-1]), xytext=(0, 5),
+                textcoords="offset points", ha="right", color=_INK, fontsize=9)
+    # the loss usually drops A LOT (overlaps get pushed apart = big loss change),
+    # so a log scale keeps run readable.
+    if losses.min() > 0:
+        ax.set_yscale("log")
+        ax.yaxis.set_major_formatter(StrMethodFormatter("{x:g}"))   # 6 instead of 6x10^0
+        ax.yaxis.set_minor_formatter(StrMethodFormatter("{x:g}"))
+        ax.tick_params(which="minor", colors=_INK_2, labelsize=8)
+    ax.set_title("Loss (lower is better)", loc="left", color=_INK)
+    _style(ax, "iteration", "loss")
+    return ax
+
+
+def plot_descent(start: np.ndarray, end: np.ndarray, losses):
+    """Starting (left) and final (right) solutions, with the loss curve underneath."""
+    fig, axes = plt.subplot_mosaic(
+        [["start", "end"],
+         ["loss", "loss"]],
+        figsize=(13, 11), height_ratios=[2, 1], layout="constrained",
+    )
+    plot_solution(start, axes["start"], title="Start")
+    plot_solution(end, axes["end"], title="L-BFGS")
+    plot_losses(losses, axes["loss"])
     return fig
 
 
